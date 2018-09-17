@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netcoreapp2.1</TargetFramework>
+    <AssemblyName>VotingImporter</AssemblyName>
+    <RootNamespace>VotingImporter</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="CommandLineParser" Version="2.2.1" />
+    <PackageReference Include="MongoDB.Driver" Version="2.7.0" />
+    <PackageReference Include="Nethereum.JsonRpc.IpcClient" Version="2.5.1" />
+    <PackageReference Include="Nethereum.Web3" Version="2.5.1" />
+    <PackageReference Include="Npgsql" Version="4.0.2" />
+    <PackageReference Include="Polly" Version="6.1.0" />
+    <PackageReference Include="PostgreSQLCopyHelper" Version="2.3.1" />
+  </ItemGroup>
+</Project>
