@@ -26,7 +26,7 @@ namespace VotingImporter
         private readonly Database _db;
         private readonly List<string> _rpcUrls;
         private readonly int _batchSize;
-        private static readonly HttpClient client = new HttpClient();
+        private static readonly HttpClient Client = new HttpClient();
         
         public BlockChainImporter(CmdOptions opts)
         {
@@ -72,7 +72,7 @@ namespace VotingImporter
                 "[{\"jsonrpc\": \"2.0\",\"method\": \"trace_transaction\",\"params\": [\"" + txHash + "\"],\"id\": 1}," +
                 "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionReceipt\",\"params\": [\"" + txHash + "\"],\"id\": 2}]";
 
-            HttpResponseMessage response = client.PostAsync(url,
+            HttpResponseMessage response = Client.PostAsync(url,
                 new StringContent(content, Encoding.UTF8, "application/json")).Result;
             string jsonResult = response.Content.ReadAsStringAsync().Result;
             JArray obj = (JArray) JsonConvert.DeserializeObject(jsonResult);
@@ -174,8 +174,8 @@ namespace VotingImporter
                     newBlock.Author = ethBlock.Author.DeHash();
                     newBlock.BlockHash = ethBlock.BlockHash.DeHash();
                     newBlock.BlockNumber = ethBlock.Number.AsLong();
-                    newBlock.Difficulty = ethBlock.Difficulty.AsLong();
-                    //newBlock.Difficulty = ethBlock.Difficulty.AsString();
+                    //newBlock.Difficulty = ethBlock.Difficulty.AsLong();
+                    newBlock.Difficulty = ethBlock.Difficulty.AsString();
                     newBlock.GasLimit = ethBlock.GasLimit.AsLong();
                     newBlock.GasUsed = ethBlock.GasUsed.AsLong();
                     newBlock.Miner = ethBlock.Miner.DeHash();

@@ -55,8 +55,8 @@ namespace VotingImporter
             [BsonElement("bn")] public long BlockNumber { get; set; }
             [BsonElement("bh")] public string BlockHash { get; set; }
             [BsonElement("author")] public string Author { get; set; }
-            [BsonElement("dif")] public long Difficulty { get; set; }
-            //[BsonElement("dif")] public string Difficulty { get; set; }
+            //[BsonElement("dif")] public long Difficulty { get; set; }
+            [BsonElement("dif")] public string Difficulty { get; set; }
             [BsonElement("gaslim")] public long GasLimit { get; set; }
             [BsonElement("gasused")] public long GasUsed { get; set; }
             [BsonElement("miner")] public string Miner { get; set; }
