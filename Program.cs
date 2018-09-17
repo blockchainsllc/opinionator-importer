@@ -72,7 +72,11 @@ namespace VotingImporter
                     var update = Builders<BsonDocument>.Update.Set("dif", newval);
 
                     mc.UpdateOne(filter,update);
-                    Console.WriteLine("Updated block " + doc["bn"].ToString() + " to " + newval);
+                    long bn = doc["bn"].AsInt64;
+                    if (bn % 1000 == 0)
+                    {
+                        Console.WriteLine("Updated block " + doc["bn"].ToString() + " to " + newval);    
+                    }
                 }
             }
         }
