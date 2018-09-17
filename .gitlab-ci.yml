@@ -1,0 +1,34 @@
+image: microsoft/dotnet:sdk
+stages: 
+  - build
+  - package
+
+build-dotnet:
+  stage: build
+  tags:
+    - short-jobs
+  script:
+    - dotnet restore
+    - dotnet publish -c Release -o build
+  artifacts:
+    untracked: false
+    expire_in: 2 days
+    paths:
+      - build/
+
+package-into-docker:
+  image: docker
+  stage: package
+  dependencies:
+    - build-dotnet
+  tags:
+    - short-jobs
+  services:
+    - docker:dind
+  script:
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME .
+    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME $CI_REGISTRY_IMAGE:latest
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+    - docker push $CI_REGISTRY_IMAGE:latest
+
