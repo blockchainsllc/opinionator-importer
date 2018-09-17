@@ -31,6 +31,7 @@ namespace VotingImporter
         {
             
             // Migration step
+            Console.WriteLine("Start DB migration");
             MigrateDatabase(opts);
             
             
