@@ -14,26 +14,24 @@ namespace VotingImporter
         {
             Console.WriteLine("Blockchain Voting Importer");
 
-            
-            
             Parser.Default.ParseArguments<CmdOptions>(args)
                 .WithParsed(RunPeriodically)
                 .WithNotParsed((errs) =>
                 {
                     Console.WriteLine("Unable to parse cmdline: " + errs.Select(e => errs.ToString()));
                 });
-            
-            
-
         }
 
         static void RunPeriodically(CmdOptions opts)
         {
             
             // Migration step
-            Console.WriteLine("Start DB migration");
-            MigrateDatabase(opts);
-            
+
+            if (opts.MigrateDB)
+            {
+                Console.WriteLine("Start DB migration");
+                MigrateDatabase(opts);    
+            }
             
             BlockChainImporter importer =new BlockChainImporter(opts);
 

@@ -18,5 +18,8 @@ namespace VotingImporter
         
         [Option('n',"dbname",Required = true)]
         public string MongoDbName { get; set; }
+        
+        [Option('m',"migrate",Required = false)]
+        public bool MigrateDB { get; set; }
     }
 }
