@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Net.Http;
+using System.Runtime.Serialization;
 using System.Text;
 using System.Threading.Tasks;
 using MongoDB.Bson;
@@ -20,6 +21,36 @@ using Sentry;
 
 namespace VotingImporter
 {
+
+    [Serializable]
+    public class ParseTraceException : Exception
+    {
+        //
+        // For guidelines regarding the creation of new exception types, see
+        //    http://msdn.microsoft.com/library/default.asp?url=/library/en-us/cpgenref/html/cpconerrorraisinghandlingguidelines.asp
+        // and
+        //    http://msdn.microsoft.com/library/default.asp?url=/library/en-us/dncscol/html/csharp07192001.asp
+        //
+
+        public ParseTraceException()
+        {
+        }
+
+        public ParseTraceException(string message) : base(message)
+        {
+        }
+
+        public ParseTraceException(string message, Exception inner) : base(message, inner)
+        {
+        }
+
+        protected ParseTraceException(
+            SerializationInfo info,
+            StreamingContext context) : base(info, context)
+        {
+        }
+    }
+
     public class BlockChainImporter
     {
         private readonly string _ipc;
@@ -95,15 +126,82 @@ namespace VotingImporter
                     {
                         JObject tobj = (JObject) jToken;
                         Database.Trace t = new Database.Trace();
-                        t.CallType = tobj["type"]?.Value<string>() ?? String.Empty;
-                        t.Gas = ParseHex(tobj["action"]?["gas"] ?? "0x0");
-                        t.TraceValue = tobj["action"]?["value"]?.Value<string>() ?? String.Empty;
-                        t.SendFrom = tobj["action"]?["from"]?.Value<string>().DeHash() ?? String.Empty;
-                        t.SendTo = tobj["action"]?["to"]?.Value<string>().DeHash() ?? String.Empty;
-                        t.GasUsed = ParseHex(tobj["result"]?["gasUsed"] ?? "0x0");
+
+                        try
+                        {
+                            t.CallType = tobj["type"]?.Value<string>() ?? String.Empty;
+                        }
+                        catch (Exception e)
+                        {
+                            throw new ParseTraceException("Unable to parse type", e);
+                        }
+
+                        try
+                        {
+                            t.Gas = ParseHex(tobj["action"]?["gas"] ?? "0x0");
+                        }
+                        catch (Exception e)
+                        {
+                            throw new ParseTraceException("Unable to parse action.gas", e);
+                        }
+
+                        try
+                        {
+                            t.TraceValue = tobj["action"]?["value"]?.Value<string>() ?? String.Empty;
+                        }
+                        catch (Exception e)
+                        {
+                            throw new ParseTraceException("Unable to parse action.value", e);
+                        }
+
+                        try
+                        {
+                            t.SendFrom = tobj["action"]?["from"]?.Value<string>().DeHash() ?? String.Empty;
+                        }
+                        catch (Exception e)
+                        {
+                            throw new ParseTraceException("Unable to parse action.from", e);
+                        }
+
+                        try
+                        {
+                            t.SendTo = tobj["action"]?["to"]?.Value<string>().DeHash() ?? String.Empty;
+                        }
+                        catch (Exception e)
+                        {
+                            throw new ParseTraceException("Unable to parse action.to", e);
+
+                        }
+
+                        try
+                        {
+                            t.GasUsed = ParseHex(tobj["result"]?["gasUsed"] ?? "0x0");
+                        }
+                        catch (Exception e)
+                        {
+                           throw new ParseTraceException("Unable to parse result.gasUsed", e);
+                        }
+
                         t.ParentTracePosition = 0;
-                        t.Creates = tobj["result"]?["address"]?.Value<string>().DeHash() ?? String.Empty;
-                        t.TracePosition = tobj["traceIndex"]?.Value<long>() ?? 0;
+
+                        try
+                        {
+                            t.Creates = tobj["result"]?["address"]?.Value<string>().DeHash() ?? String.Empty;
+                        }
+                        catch (Exception e)
+                        {
+                            throw new ParseTraceException("Unable to parse result.address", e);
+                        }
+
+                        try
+                        {
+                            t.TracePosition = tobj["traceIndex"]?.Value<long>() ?? 0;
+                        }
+                        catch (Exception e)
+                        {
+                            throw new ParseTraceException("Unable to parse traceIndex", e);
+                        }
+
                         traces.Add(t);
                     }
                     catch(Exception ex)
@@ -111,6 +209,7 @@ namespace VotingImporter
                         SentrySdk.WithScope(scope =>
                         {
                             scope.SetExtra("tx-hash",txHash);
+                            scope.SetExtra("trace-json",JsonConvert.SerializeObject(jToken));
                             SentrySdk.CaptureException(new Exception("Unable to parse trace",ex));
                         });
                     }
