@@ -16,6 +16,7 @@ using Nethereum.Web3;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Polly;
+using Sentry;
 
 namespace VotingImporter
 {
@@ -26,16 +27,16 @@ namespace VotingImporter
         private readonly List<string> _rpcUrls;
         private readonly int _batchSize;
         private static readonly HttpClient Client = new HttpClient();
-        
+
         public BlockChainImporter(CmdOptions opts)
         {
             string mongoDbUrl = opts.MongoUrl;
             if (!mongoDbUrl.StartsWith("mongodb://"))
             {
                 throw new Exception("ERROR: first argument has to be a mongo url");
-                
+
             }
-            
+
             _rpcUrls = opts.RpcUrl.Split(',').ToList();
             if (!_rpcUrls.All(x => x.StartsWith("http://")))
             {
@@ -66,7 +67,7 @@ namespace VotingImporter
             List<Database.Trace> traces = new List<Database.Trace>();
             Database.Receipt r = new Database.Receipt();
 
-            
+
             string content =
                 "[{\"jsonrpc\": \"2.0\",\"method\": \"trace_transaction\",\"params\": [\"" + txHash + "\"],\"id\": 1}," +
                 "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionReceipt\",\"params\": [\"" + txHash + "\"],\"id\": 2}]";
@@ -75,7 +76,18 @@ namespace VotingImporter
                 new StringContent(content, Encoding.UTF8, "application/json")).Result;
             string jsonResult = response.Content.ReadAsStringAsync().Result;
             JArray obj = (JArray) JsonConvert.DeserializeObject(jsonResult);
-            if (obj[0]["result"] is JArray result)
+
+            byte idxTrace = 0;
+            byte idxReciept = 1;
+
+            if (obj[0]["id"].Value<int>() == 2)
+            {
+                idxTrace = 1;
+                idxReciept = 0;
+
+            }
+
+            if (obj[idxTrace]["result"] is JArray result)
             {
                 foreach (JToken jToken in result)
                 {
@@ -94,14 +106,17 @@ namespace VotingImporter
                         t.TracePosition = tobj["traceIndex"]?.Value<long>() ?? 0;
                         traces.Add(t);
                     }
-                    catch
+                    catch(Exception ex)
                     {
-                        Console.WriteLine("\tIgnored unknown trace");
-                        //throw;
+                        SentrySdk.WithScope(scope =>
+                        {
+                            scope.SetExtra("tx-hash",txHash);
+                            SentrySdk.CaptureException(new Exception("Unable to parse trace",ex));
+                        });
                     }
                 }
-            } 
-            if (obj[1]["result"] is JObject receipt)
+            }
+            if (obj[idxReciept]["result"] is JObject receipt)
             {
                 try
                 {
@@ -109,15 +124,19 @@ namespace VotingImporter
                     r.Logs =  BsonSerializer.Deserialize<object>(logsJson);
                     r.GasUsed = ParseHex(receipt["gasUsed"] ?? "0x0");
                     r.ContractAddress = receipt["contractAddress"]?.Value<string>().DeHash() ?? "0x0";
-                    
+
                 }
-                catch
+                catch(Exception ex)
                 {
-                    Console.WriteLine("\tunable to get receipt");
-                    //throw;
+                    SentrySdk.WithScope(scope =>
+                    {
+                        scope.SetExtra("tx-hash",txHash);
+                        SentrySdk.CaptureException(new Exception("Unable to get tx receipt", ex));
+                    });
+
                 }
             }
-            
+
 
             return (traces,r);
         }
@@ -128,7 +147,7 @@ namespace VotingImporter
             long lastTimeStamp = 0;
 
             //get blocks
-            
+
             Policy pollyRetryPolicy = Policy
                 .Handle<Exception>()
                 .WaitAndRetry(new[]
@@ -136,22 +155,23 @@ namespace VotingImporter
                     TimeSpan.FromSeconds(1),
                 }, (exception, retryCount) =>
                 {
+                    SentrySdk.CaptureMessage("Parity is overloaded. Will wait... " + retryCount.TotalSeconds);
                     Console.WriteLine("Parity is overloaded. Will wait... " + retryCount.TotalSeconds);
                 });
-            
-            
+
+
             long startBlock = _db.GetLastBlock() +1;
             Web3 web3 = GetWeb3Client();
             long maxBlock = web3.Eth.Blocks.GetBlockNumber.SendRequestAsync().Result.AsLong();
-            
+
 
             Console.WriteLine($"==> Running block #{startBlock} to #{maxBlock} <==");
-            
+
             Stopwatch sw = new Stopwatch();
             DateTime startTime = DateTime.UtcNow;
             for (long x = startBlock; x <= maxBlock; x = x + _batchSize)
             {
-                
+
                 sw.Restart();
 
                 long x2 = x;
@@ -166,10 +186,10 @@ namespace VotingImporter
 
                     BlockWithTransactions ethBlock = capture.Result;
 
-                    
+
                     //get block fromn parity
                     Database.Block newBlock = new Database.Block();
-                    
+
                     newBlock.Author = ethBlock.Author.DeHash();
                     newBlock.BlockHash = ethBlock.BlockHash.DeHash();
                     newBlock.BlockNumber = ethBlock.Number.AsLong();
@@ -181,9 +201,10 @@ namespace VotingImporter
                     newBlock.Size = ethBlock.Size.AsLong();
                     newBlock.Timestamp = (long) ethBlock.Timestamp.Value;
                     newBlock.Transactions = new List<Database.Transaction>();
+                    lastTimeStamp = newBlock.Timestamp;
 
                     object myLock = new object();
-                    
+
                     //foreach (var ethtx in ethBlock.Transactions)
                     long x1 = x2;
                     Parallel.ForEach(ethBlock.Transactions,new ParallelOptions { MaxDegreeOfParallelism = 5 }, (ethtx) =>
@@ -200,7 +221,7 @@ namespace VotingImporter
                             TxIndex = (int) ethtx.TransactionIndex.AsLong(),
                         };
 
-                        //get traces 
+                        //get traces
                         try
                         {
                             var queryResult = GetTrace(ethtx.TransactionHash, _rpcUrls[(int) (x1 % _rpcUrls.Count)]);
@@ -209,14 +230,13 @@ namespace VotingImporter
                         }
                         catch (Exception e)
                         {
-                            Console.WriteLine(e);
+                            SentrySdk.CaptureException(e);
                             //ignored
                         }
 
                         lock (myLock)
                         {
                             newBlock.Transactions.Add(tx);
-                            lastTimeStamp = newBlock.Timestamp;
                         }
                     });
 

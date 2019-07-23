@@ -5,6 +5,7 @@ using System.Threading;
 using CommandLine;
 using MongoDB.Bson;
 using MongoDB.Driver;
+using Sentry;
 
 namespace VotingImporter
 {
@@ -12,27 +13,42 @@ namespace VotingImporter
     {
         static void Main(string[] args)
         {
-            Console.WriteLine("Blockchain Voting Importer");
+            using (SentrySdk.Init(opts =>
+            {
+                opts.Dsn = new Dsn("https://d29df1f48689468a91153b1642b42d30@sentry.slock.it/8");
+                opts.Environment = Environment.GetEnvironmentVariable("ENVIRONMENT") ?? "local";
 
-            Parser.Default.ParseArguments<CmdOptions>(args)
-                .WithParsed(RunPeriodically)
-                .WithNotParsed((errs) =>
-                {
-                    Console.WriteLine("Unable to parse cmdline: " + errs.Select(e => errs.ToString()));
-                });
+            }))
+            {
+                Console.WriteLine("Blockchain Voting Importer");
+                Parser.Default.ParseArguments<CmdOptions>(args)
+                    .WithParsed(RunPeriodically)
+                    .WithNotParsed((errs) =>
+                    {
+                        SentrySdk.CaptureMessage("Unable to parse cmdline: " + errs.Select(e => errs.ToString()));
+                    });
+
+            }
         }
 
         static void RunPeriodically(CmdOptions opts)
         {
-            
+
+            SentrySdk.ConfigureScope(scope =>
+            {
+                scope.SetTag("rpc", opts.RpcUrl);
+                scope.SetTag("dbname", opts.MongoDbName);
+                scope.SetTag("dburl", opts.MongoUrl);
+            });
+
             // Migration step
 
             if (opts.MigrateDB)
             {
                 Console.WriteLine("Start DB migration");
-                MigrateDatabase(opts);    
+                MigrateDatabase(opts);
             }
-            
+
             BlockChainImporter importer =new BlockChainImporter(opts);
 
             while (true)
@@ -57,7 +73,7 @@ namespace VotingImporter
             var mc = client.GetDatabase(opts.MongoDbName).GetCollection<BsonDocument>("blocks");
 
             var fb = Builders<BsonDocument>.Filter;
-            
+
             var tf = fb.Not(fb.Type("dif", BsonType.Double));
             var cur = mc.Find(tf).Project("{bn:1, dif:1}").ToCursor();
             while (cur.MoveNext())
@@ -74,7 +90,7 @@ namespace VotingImporter
                     long bn = doc["bn"].AsInt64;
                     if (bn % 1000 == 0)
                     {
-                        Console.WriteLine("Updated block " + doc["bn"].ToString() + " to " + newval);    
+                        Console.WriteLine("Updated block " + doc["bn"].ToString() + " to " + newval);
                     }
                 }
             }
