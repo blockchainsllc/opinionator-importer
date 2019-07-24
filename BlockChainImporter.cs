@@ -276,68 +276,27 @@ namespace VotingImporter
                 long x2 = x;
                 Parallel.For(x, x + _batchSize, i =>
                 {
-                    PolicyResult<BlockWithTransactions> capture = pollyRetryPolicy.ExecuteAndCapture(() =>
-                    {
-                        BlockWithTransactions rpcBlock = web3.Eth.Blocks.GetBlockWithTransactionsByNumber
-                            .SendRequestAsync(new HexBigInteger(i)).Result;
-                        return rpcBlock;
-                    });
-
-                    BlockWithTransactions ethBlock = capture.Result;
-
+                    BlockWithTransactions ethBlock = GetBlockWithTransactions(pollyRetryPolicy, web3, i);
 
                     //get block fromn parity
-                    Database.Block newBlock = new Database.Block();
+                    Database.Block newBlock = new Database.Block
+                    {
+                        Author = ethBlock.Author.DeHash(),
+                        BlockHash = ethBlock.BlockHash.DeHash(),
+                        BlockNumber = ethBlock.Number.AsLong(),
+                        Difficulty = double.Parse(ethBlock.Difficulty.AsString()),
+                        GasLimit = ethBlock.GasLimit.AsLong(),
+                        GasUsed = ethBlock.GasUsed.AsLong(),
+                        Miner = ethBlock.Miner.DeHash(),
+                        Size = ethBlock.Size.AsLong(),
+                        Timestamp = (long) ethBlock.Timestamp.Value,
+                        Transactions = new List<Database.Transaction>()
+                    };
 
-                    newBlock.Author = ethBlock.Author.DeHash();
-                    newBlock.BlockHash = ethBlock.BlockHash.DeHash();
-                    newBlock.BlockNumber = ethBlock.Number.AsLong();
                     //newBlock.Difficulty = ethBlock.Difficulty.AsLong();
-                    newBlock.Difficulty = double.Parse(ethBlock.Difficulty.AsString());
-                    newBlock.GasLimit = ethBlock.GasLimit.AsLong();
-                    newBlock.GasUsed = ethBlock.GasUsed.AsLong();
-                    newBlock.Miner = ethBlock.Miner.DeHash();
-                    newBlock.Size = ethBlock.Size.AsLong();
-                    newBlock.Timestamp = (long) ethBlock.Timestamp.Value;
-                    newBlock.Transactions = new List<Database.Transaction>();
                     lastTimeStamp = newBlock.Timestamp;
 
-                    object myLock = new object();
-
-                    //foreach (var ethtx in ethBlock.Transactions)
-                    long x1 = x2;
-                    Parallel.ForEach(ethBlock.Transactions,new ParallelOptions { MaxDegreeOfParallelism = 5 }, (ethtx) =>
-                    {
-                        Database.Transaction tx = new Database.Transaction
-                        {
-                            Gas = ethtx.Gas.AsLong(),
-                            Nonce = ethtx.Nonce.AsLong(),
-                            GasPrice = ethtx.GasPrice.Value.ToString(),
-                            TxHash = ethtx.TransactionHash.DeHash(),
-                            TxSender = ethtx.From.DeHash(),
-                            TxRecipient = ethtx.To.DeHash(),
-                            TxValue = ethtx.Value.Value.ToString(),
-                            TxIndex = (int) ethtx.TransactionIndex.AsLong(),
-                        };
-
-                        //get traces
-                        try
-                        {
-                            var queryResult = GetTrace(ethtx.TransactionHash, _rpcUrls[(int) (x1 % _rpcUrls.Count)]);
-                            tx.Traces = queryResult.Item1;
-                            tx.Receipt = queryResult.Item2;
-                        }
-                        catch (Exception e)
-                        {
-                            SentrySdk.CaptureException(e);
-                            //ignored
-                        }
-
-                        lock (myLock)
-                        {
-                            newBlock.Transactions.Add(tx);
-                        }
-                    });
+                    ParseBlockTransactions(x2, ethBlock, newBlock);
 
                     _db.Insert(newBlock);
                     Console.Write(".");
@@ -359,6 +318,59 @@ namespace VotingImporter
             }
 
             Console.WriteLine("==> Batch done. Wait for new blocks. <==");
+        }
+
+        private void ParseBlockTransactions(long x2, BlockWithTransactions ethBlock, Database.Block newBlock)
+        {
+            object myLock = new object();
+
+            //foreach (var ethtx in ethBlock.Transactions)
+            long x1 = x2;
+            Parallel.ForEach(ethBlock.Transactions, new ParallelOptions {MaxDegreeOfParallelism = 5}, (ethtx) =>
+            {
+                Database.Transaction tx = new Database.Transaction
+                {
+                    Gas = ethtx.Gas.AsLong(),
+                    Nonce = ethtx.Nonce.AsLong(),
+                    GasPrice = ethtx.GasPrice.Value.ToString(),
+                    TxHash = ethtx.TransactionHash.DeHash(),
+                    TxSender = ethtx.From.DeHash(),
+                    TxRecipient = ethtx.To.DeHash(),
+                    TxValue = ethtx.Value.Value.ToString(),
+                    TxIndex = (int) ethtx.TransactionIndex.AsLong(),
+                };
+
+                //get traces
+                try
+                {
+                    var queryResult = GetTrace(ethtx.TransactionHash, _rpcUrls[(int) (x1 % _rpcUrls.Count)]);
+                    tx.Traces = queryResult.Item1;
+                    tx.Receipt = queryResult.Item2;
+                }
+                catch (Exception e)
+                {
+                    SentrySdk.CaptureException(e);
+                    //ignored
+                }
+
+                lock (myLock)
+                {
+                    newBlock.Transactions.Add(tx);
+                }
+            });
+        }
+
+        private static BlockWithTransactions GetBlockWithTransactions(Policy pollyRetryPolicy, Web3 web3, long blockNumber)
+        {
+            PolicyResult<BlockWithTransactions> capture = pollyRetryPolicy.ExecuteAndCapture(() =>
+            {
+                BlockWithTransactions rpcBlock = web3.Eth.Blocks.GetBlockWithTransactionsByNumber
+                    .SendRequestAsync(new HexBigInteger(blockNumber)).Result;
+                return rpcBlock;
+            });
+
+            BlockWithTransactions ethBlock = capture.Result;
+            return ethBlock;
         }
 
         private Web3 GetWeb3Client()
