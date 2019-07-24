@@ -97,6 +97,13 @@ namespace VotingImporter
             for (byte i = 0; i < path.Length; i++)
             {
                 JObject newObj = curObj[path[i]] as JObject;
+                JValue objValue = curObj[path[i]] as JValue;
+
+                if (objValue?.Value != null)
+                {
+                    return objValue.Value<T>();
+                }
+
                 if (!(newObj?.HasValues ?? false))
                 {
                     // not found
