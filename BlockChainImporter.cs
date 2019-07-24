@@ -303,30 +303,62 @@ namespace VotingImporter
                 long x2 = x;
                 Parallel.For(x, x + _batchSize, i =>
                 {
-                    BlockWithTransactions ethBlock = GetBlockWithTransactions(pollyRetryPolicy, web3, i);
 
-                    //get block fromn parity
-                    Database.Block newBlock = new Database.Block
+                    SentrySdk.WithScope(scope =>
                     {
-                        Author = ethBlock.Author.DeHash(),
-                        BlockHash = ethBlock.BlockHash.DeHash(),
-                        BlockNumber = ethBlock.Number.AsLong(),
-                        Difficulty = double.Parse(ethBlock.Difficulty.AsString()),
-                        GasLimit = ethBlock.GasLimit.AsLong(),
-                        GasUsed = ethBlock.GasUsed.AsLong(),
-                        Miner = ethBlock.Miner.DeHash(),
-                        Size = ethBlock.Size.AsLong(),
-                        Timestamp = (long) ethBlock.Timestamp.Value,
-                        Transactions = new List<Database.Transaction>()
-                    };
+                        scope.SetExtra("block-number", i);
+                        BlockWithTransactions ethBlock;
 
-                    //newBlock.Difficulty = ethBlock.Difficulty.AsLong();
-                    lastTimeStamp = newBlock.Timestamp;
+                        try
+                        {
+                            SentrySdk.AddBreadcrumb($"Getting Block #{i}");
+                            ethBlock = GetBlockWithTransactions(pollyRetryPolicy, web3, i);
+                            if (ethBlock == null)
+                            {
+                                throw new Exception("Got null block from rpc");
+                            }
+                        }
+                        catch (Exception e)
+                        {
+                            SentrySdk.CaptureException(new Exception("Unable to retrieve block", e));
+                            return;
+                        }
 
-                    ParseBlockTransactions(x2, ethBlock, newBlock);
+                        try
+                        {
 
-                    _db.Insert(newBlock);
-                    Console.Write(".");
+                            //get block fromn parity
+                            SentrySdk.AddBreadcrumb($"Parsing Block #{i}");
+                            Database.Block newBlock = new Database.Block
+                            {
+                                Author = ethBlock.Author.DeHash(),
+                                BlockHash = ethBlock.BlockHash.DeHash(),
+                                BlockNumber = ethBlock.Number.AsLong(),
+                                Difficulty = double.Parse(ethBlock.Difficulty.AsString()),
+                                GasLimit = ethBlock.GasLimit.AsLong(),
+                                GasUsed = ethBlock.GasUsed.AsLong(),
+                                Miner = ethBlock.Miner.DeHash(),
+                                Size = ethBlock.Size.AsLong(),
+                                Timestamp = (long) ethBlock.Timestamp.Value,
+                                Transactions = new List<Database.Transaction>()
+                            };
+
+                            //newBlock.Difficulty = ethBlock.Difficulty.AsLong();
+                            lastTimeStamp = newBlock.Timestamp;
+
+                            SentrySdk.AddBreadcrumb($"Parsing Transactions for Block #{i}");
+                            ParseBlockTransactions(x2, ethBlock, newBlock);
+
+                            SentrySdk.AddBreadcrumb($"Inserting Block #{i} to database");
+                            _db.Insert(newBlock);
+                            Console.Write(".");
+                        }
+                        catch (Exception e)
+                        {
+                            scope.SetExtra("block-data",JsonConvert.SerializeObject(ethBlock));
+                            SentrySdk.CaptureException(new Exception("Unable to process block", e));
+                        }
+                    });
                 });
 
                 sw.Stop();
