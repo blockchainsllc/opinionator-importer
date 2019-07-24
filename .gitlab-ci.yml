@@ -1,5 +1,5 @@
 image: microsoft/dotnet:sdk
-stages: 
+stages:
   - build
   - package
 
@@ -19,6 +19,10 @@ build-dotnet:
 package-into-docker:
   image: docker
   stage: package
+  only:
+    - /^v[0-9]+.[0-9]+.[0-9]+$/
+  except:
+    - branches
   dependencies:
     - build-dotnet
   tags:
@@ -27,8 +31,10 @@ package-into-docker:
     - docker:dind
   script:
     - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
-    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME .
-    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME $CI_REGISTRY_IMAGE:latest
+    - docker build --build-arg CI_VERSION=voting-importer@${CI_COMMIT_REF_NAME} -t $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME .
     - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
-    - docker push $CI_REGISTRY_IMAGE:latest
+    - sentry-cli releases new -p voting-importer voting-importer@${CI_COMMIT_REF_NAME}
+    - sentry-cli releases set-commits --auto voting-importer@${CI_COMMIT_REF_NAME}
+    - sentry-cli upload-dif -p voting-importer -t pdb -t pe .
+
 

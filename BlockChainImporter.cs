@@ -175,7 +175,7 @@ namespace VotingImporter
 
                         try
                         {
-                            t.GasUsed = ParseHex(tobj["result"]?["gasUsed"] ?? "0x0");
+                            t.GasUsed = ParseHex(tobj["result"]?["gasUsed"]?.Value<string>() ?? "0x0");
                         }
                         catch (Exception e)
                         {
