@@ -17,7 +17,7 @@ namespace VotingImporter
             {
                 opts.Dsn = new Dsn("https://d29df1f48689468a91153b1642b42d30@sentry.slock.it/8");
                 opts.Environment = Environment.GetEnvironmentVariable("ENVIRONMENT") ?? "local";
-                opts.Release = "voting-importer@" + (Environment.GetEnvironmentVariable("VERSION") ?? "v0.0.0");
+                opts.Release = Environment.GetEnvironmentVariable("VERSION") ?? "voting-importer@v0.0.0";
 
             }))
             {
