@@ -9,7 +9,7 @@ build-dotnet:
     - short-jobs
   script:
     - dotnet restore
-    - dotnet publish -c Release -o build
+    - dotnet publish -c Debug -o build
   artifacts:
     untracked: false
     expire_in: 2 days
@@ -35,6 +35,5 @@ package-into-docker:
     - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
     - sentry-cli releases new -p voting-importer voting-importer@${CI_COMMIT_REF_NAME}
     - sentry-cli releases set-commits --auto voting-importer@${CI_COMMIT_REF_NAME}
-    - sentry-cli upload-dif -p voting-importer -t pdb -t pe .
 
 
