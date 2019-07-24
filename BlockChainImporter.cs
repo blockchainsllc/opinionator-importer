@@ -21,7 +21,6 @@ using Sentry;
 
 namespace VotingImporter
 {
-
     [Serializable]
     public class ParseTraceException : Exception
     {
@@ -65,7 +64,6 @@ namespace VotingImporter
             if (!mongoDbUrl.StartsWith("mongodb://"))
             {
                 throw new Exception("ERROR: first argument has to be a mongo url");
-
             }
 
             _rpcUrls = opts.RpcUrl.Split(',').ToList();
@@ -75,7 +73,7 @@ namespace VotingImporter
             }
 
             _ipc = opts.IpcPath;
-            _db = new Database(mongoDbUrl,opts.MongoDbName);
+            _db = new Database(mongoDbUrl, opts.MongoDbName);
             _batchSize = opts.BatchSize;
         }
 
@@ -93,15 +91,42 @@ namespace VotingImporter
             return Int64.Parse(value.ToString().DeHash(), NumberStyles.AllowHexSpecifier);
         }
 
-        private (List<Database.Trace>,Database.Receipt) GetTrace(string txHash,string url)
+        static T FetchValue<T>(JObject jObj, string[] path)
+        {
+            JObject curObj = jObj;
+            for (byte i = 0; i < path.Length; i++)
+            {
+                JObject newObj = curObj[path[i]] as JObject;
+                if (!(newObj?.HasValues ?? false))
+                {
+                    // not found
+                    return default(T);
+                }
+
+                if (i == path.Length - 1)
+                {
+                    //reached end
+                    return newObj.Value<T>();
+                }
+
+                curObj = newObj;
+            }
+
+            return default(T);
+        }
+
+
+        private (List<Database.Trace>, Database.Receipt) GetTrace(string txHash, string url)
         {
             List<Database.Trace> traces = new List<Database.Trace>();
             Database.Receipt r = new Database.Receipt();
 
 
             string content =
-                "[{\"jsonrpc\": \"2.0\",\"method\": \"trace_transaction\",\"params\": [\"" + txHash + "\"],\"id\": 1}," +
-                "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionReceipt\",\"params\": [\"" + txHash + "\"],\"id\": 2}]";
+                "[{\"jsonrpc\": \"2.0\",\"method\": \"trace_transaction\",\"params\": [\"" + txHash +
+                "\"],\"id\": 1}," +
+                "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionReceipt\",\"params\": [\"" + txHash +
+                "\"],\"id\": 2}]";
 
             HttpResponseMessage response = Client.PostAsync(url,
                 new StringContent(content, Encoding.UTF8, "application/json")).Result;
@@ -115,7 +140,6 @@ namespace VotingImporter
             {
                 idxTrace = 1;
                 idxReciept = 0;
-
             }
 
             if (obj[idxTrace]["result"] is JArray result)
@@ -129,7 +153,7 @@ namespace VotingImporter
 
                         try
                         {
-                            t.CallType = tobj["type"]?.Value<string>() ?? String.Empty;
+                            t.CallType = tobj["type"].Value<string>();
                         }
                         catch (Exception e)
                         {
@@ -138,7 +162,7 @@ namespace VotingImporter
 
                         try
                         {
-                            t.Gas = ParseHex(tobj["action"]?["gas"] ?? "0x0");
+                            t.Gas = ParseHex(FetchValue<String>(tobj, new[] {"action", "gas"}) ?? "0x0");
                         }
                         catch (Exception e)
                         {
@@ -147,7 +171,7 @@ namespace VotingImporter
 
                         try
                         {
-                            t.TraceValue = tobj["action"]?["value"]?.Value<string>() ?? String.Empty;
+                            t.TraceValue = FetchValue<String>(tobj, new[] {"action", "value"}) ?? String.Empty;
                         }
                         catch (Exception e)
                         {
@@ -156,7 +180,7 @@ namespace VotingImporter
 
                         try
                         {
-                            t.SendFrom = tobj["action"]?["from"]?.Value<string>().DeHash() ?? String.Empty;
+                            t.SendFrom = FetchValue<String>(tobj, new[] {"action", "from"}).DeHash() ?? String.Empty;
                         }
                         catch (Exception e)
                         {
@@ -165,28 +189,27 @@ namespace VotingImporter
 
                         try
                         {
-                            t.SendTo = tobj["action"]?["to"]?.Value<string>().DeHash() ?? String.Empty;
+                            t.SendTo = FetchValue<String>(tobj, new[] {"action", "to"})?.DeHash() ?? String.Empty;
                         }
                         catch (Exception e)
                         {
                             throw new ParseTraceException("Unable to parse action.to", e);
-
                         }
 
                         try
                         {
-                            t.GasUsed = ParseHex(tobj["result"]?["gasUsed"]?.Value<string>() ?? "0x0");
+                            t.GasUsed = ParseHex(FetchValue<string>(tobj, new[] {"result", "gasUsed"}) ?? "0x0");
                         }
                         catch (Exception e)
                         {
-                           throw new ParseTraceException("Unable to parse result.gasUsed", e);
+                            throw new ParseTraceException("Unable to parse result.gasUsed", e);
                         }
 
                         t.ParentTracePosition = 0;
 
                         try
                         {
-                            t.Creates = tobj["result"]?["address"]?.Value<string>().DeHash() ?? String.Empty;
+                            t.Creates = FetchValue<string>(tobj, new[] {"result", "address"})?.DeHash() ?? String.Empty;
                         }
                         catch (Exception e)
                         {
@@ -204,45 +227,43 @@ namespace VotingImporter
 
                         traces.Add(t);
                     }
-                    catch(Exception ex)
+                    catch (Exception ex)
                     {
                         SentrySdk.WithScope(scope =>
                         {
-                            scope.SetExtra("tx-hash",txHash);
-                            scope.SetExtra("trace-json",JsonConvert.SerializeObject(jToken));
-                            SentrySdk.CaptureException(new Exception("Unable to parse trace",ex));
+                            scope.SetExtra("tx-hash", txHash);
+                            scope.SetExtra("trace-json", JsonConvert.SerializeObject(jToken));
+                            SentrySdk.CaptureException(new Exception("Unable to parse trace", ex));
                         });
                     }
                 }
             }
+
             if (obj[idxReciept]["result"] is JObject receipt)
             {
                 try
                 {
                     string logsJson = JsonConvert.SerializeObject(receipt["logs"]);
-                    r.Logs =  BsonSerializer.Deserialize<object>(logsJson);
+                    r.Logs = BsonSerializer.Deserialize<object>(logsJson);
                     r.GasUsed = ParseHex(receipt["gasUsed"] ?? "0x0");
                     r.ContractAddress = receipt["contractAddress"]?.Value<string>().DeHash() ?? "0x0";
-
                 }
-                catch(Exception ex)
+                catch (Exception ex)
                 {
                     SentrySdk.WithScope(scope =>
                     {
-                        scope.SetExtra("tx-hash",txHash);
+                        scope.SetExtra("tx-hash", txHash);
                         SentrySdk.CaptureException(new Exception("Unable to get tx receipt", ex));
                     });
-
                 }
             }
 
 
-            return (traces,r);
+            return (traces, r);
         }
 
         public void RunImporter()
         {
-
             long lastTimeStamp = 0;
 
             //get blocks
@@ -259,7 +280,7 @@ namespace VotingImporter
                 });
 
 
-            long startBlock = _db.GetLastBlock() +1;
+            long startBlock = _db.GetLastBlock() + 1;
             Web3 web3 = GetWeb3Client();
             long maxBlock = web3.Eth.Blocks.GetBlockNumber.SendRequestAsync().Result.AsLong();
 
@@ -270,7 +291,6 @@ namespace VotingImporter
             DateTime startTime = DateTime.UtcNow;
             for (long x = startBlock; x <= maxBlock; x = x + _batchSize)
             {
-
                 sw.Restart();
 
                 long x2 = x;
@@ -311,10 +331,12 @@ namespace VotingImporter
                 {
                     remainingSeconds = 120;
                 }
+
                 TimeSpan time = TimeSpan.FromSeconds(remainingSeconds);
                 DateTimeOffset lastBlockDt = DateTimeOffset.FromUnixTimeSeconds(lastTimeStamp);
                 TimeSpan behindChain = DateTime.UtcNow - lastBlockDt.UtcDateTime;
-                Console.WriteLine($" => {x} blocks done - {blocksPerSec,6:F1} blk/s - AVG: {avgPerSec,6:F1} blk/s - ETA: {time.ToString(@"dd\.hh\:mm\:ss")} - {behindChain.ToString(@"dd\.hh\:mm\:ss")} behind chain =====");
+                Console.WriteLine(
+                    $" => {x} blocks done - {blocksPerSec,6:F1} blk/s - AVG: {avgPerSec,6:F1} blk/s - ETA: {time.ToString(@"dd\.hh\:mm\:ss")} - {behindChain.ToString(@"dd\.hh\:mm\:ss")} behind chain =====");
             }
 
             Console.WriteLine("==> Batch done. Wait for new blocks. <==");
@@ -360,7 +382,8 @@ namespace VotingImporter
             });
         }
 
-        private static BlockWithTransactions GetBlockWithTransactions(Policy pollyRetryPolicy, Web3 web3, long blockNumber)
+        private static BlockWithTransactions GetBlockWithTransactions(Policy pollyRetryPolicy, Web3 web3,
+            long blockNumber)
         {
             PolicyResult<BlockWithTransactions> capture = pollyRetryPolicy.ExecuteAndCapture(() =>
             {
