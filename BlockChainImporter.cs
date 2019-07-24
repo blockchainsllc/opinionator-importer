@@ -289,7 +289,7 @@ namespace VotingImporter
 
             long startBlock = _db.GetLastBlock() + 1;
             Web3 web3 = GetWeb3Client();
-            long maxBlock = web3.Eth.Blocks.GetBlockNumber.SendRequestAsync().Result.AsLong();
+            long maxBlock = web3.Eth.Blocks.GetBlockNumber.SendRequestAsync().Result.AsLong() - 20;
 
 
             Console.WriteLine($"==> Running block #{startBlock} to #{maxBlock} <==");

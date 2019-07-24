@@ -55,7 +55,7 @@ namespace VotingImporter
             while (true)
             {
                 long lag = importer.GetCurrentLag();
-                if (lag > 10)
+                if (lag > 50)
                 {
                     importer.RunImporter();
                 }
